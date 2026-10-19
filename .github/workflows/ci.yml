@@ -88,7 +88,8 @@ jobs:
       # O motor é puro: tempo e aleatoriedade entram por parâmetro.
       - name: Pureza do motor de regras
         run: |
-          if grep -rn "Date\.now\|Math\.random" packages/rules/src --include=*.ts; then
+          # Linhas de comentário (` * ...`) ficam de fora: a regra é sobre código.
+          if grep -rn "Date\.now\|Math\.random" packages/rules/src --include=*.ts | grep -v '^\S*: *\*'; then
             echo "::error::packages/rules usa Date.now ou Math.random"
             exit 1
           fi
