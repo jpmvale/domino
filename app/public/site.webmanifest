@@ -1,0 +1,14 @@
+{
+  "name": "Dominó",
+  "short_name": "Dominó",
+  "description": "Dominó com os amigos, direto no navegador. Batida ou múltiplo de 5.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080b14",
+  "theme_color": "#080b14",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icone.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

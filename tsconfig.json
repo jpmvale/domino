@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/rules" },
+    { "path": "./packages/bot" },
+    { "path": "./packages/store" },
+    { "path": "./packages/protocol" },
+    { "path": "./packages/room" },
+    { "path": "./server" },
+    { "path": "./app" }
+  ]
+}

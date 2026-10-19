@@ -1,0 +1,177 @@
+# Publica na VPS depois que o CI passa.
+#
+# `workflow_run` e não `push`: assim o deploy herda o veredito do CI em vez de
+# repetir a suíte, e nada sobe com o teste vermelho. O sha vem do run que
+# disparou — `github.sha` aqui apontaria para o branch padrão no momento do
+# gatilho, que nem sempre é o commit testado.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+  # Escotilha de emergência. O gatilho automático já falhou de duas formas
+  # diferentes — o evento `workflow_run` não chegou (26/08) e o SSH estourou o
+  # tempo (26/08) —, e nas duas a única saída foi reexecutar o CI inteiro para
+  # provocar o deploy de novo. Publicar não deveria depender de reprovar 500
+  # testes.
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Commit a publicar. Vazio = topo da main.'
+        required: false
+        type: string
+
+concurrency:
+  # Dois deploys ao mesmo tempo disputariam o mesmo diretório na VPS, que faz
+  # `git checkout --detach` — o segundo trocaria o commit debaixo do primeiro.
+  # Sem `cancel-in-progress`: um deploy pela metade é pior que um deploy a mais.
+  group: deploy-domino
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    # Só com o CI verde. Um `workflow_run` dispara também em falha; o disparo
+    # manual não traz veredito nenhum e é conferido no passo `CI verde`.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Para empurrar a imagem para o GHCR com o token da própria execução.
+      packages: write
+      # Para o disparo manual conferir se o CI passou naquele commit.
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # O commit que o CI aprovou, e não o topo do branch: entre o CI e o
+          # deploy pode ter entrado outro push, e publicar o que não foi
+          # testado é exatamente o que este gatilho existe para evitar.
+          #
+          # No disparo manual não há run de CI para herdar, então vale o que a
+          # pessoa pediu — ou o topo da main. A garantia não é abandonada: ela
+          # se muda para o passo seguinte.
+          ref: ${{ github.event.workflow_run.head_sha || inputs.sha || github.sha }}
+
+      - name: Sha curto
+        id: sha
+        run: echo "tag=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      # A escotilha não pode virar um jeito de publicar o que não foi testado.
+      # O gatilho automático herda o veredito do CI; o manual vai buscá-lo.
+      - name: CI verde neste commit
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          VEREDITO=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$SHA" \
+            --jq '[.workflow_runs[] | select(.name=="CI")] | first | .conclusion // "nenhum"')
+
+          echo "CI em $SHA: $VEREDITO"
+          if [ "$VEREDITO" != "success" ]; then
+            echo "::error::o CI não passou neste commit ($VEREDITO). Publicar daqui pularia a suíte inteira — rode o CI antes."
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A imagem constrói o cliente dentro dela (Vite) e roda dos fontes sob
+      # tsx — ver o Dockerfile. Aqui não há passo de build separado.
+      - name: Construir e empurrar
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/jpmvale/domino:${{ steps.sha.outputs.tag }}
+          # Cache no próprio registro: sem isto cada deploy recompila o
+          # `npm ci` inteiro, que é a parte lenta.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Chave de deploy
+        run: |
+          mkdir -p ~/.ssh
+
+          # `printf '%s\n'` e `tr -d '\r'`: a chave precisa terminar em quebra
+          # de linha, e um segredo colado de um editor de Windows chega com CR
+          # no fim de cada linha. Os dois casos produzem o mesmo erro cru do
+          # OpenSSH — "error in libcrypto" —, que não diz nada sobre a causa.
+          printf '%s\n' "${{ secrets.VPS_DEPLOY_KEY }}" | tr -d '\r' > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          # Falha aqui, com o motivo escrito, em vez de lá adiante como
+          # "Permission denied (publickey)" — que manda procurar no lugar
+          # errado, o servidor, quando o problema está no segredo.
+          if ! ssh-keygen -y -f ~/.ssh/id_deploy > /dev/null 2>&1; then
+            echo "::error::VPS_DEPLOY_KEY não é uma chave privada OpenSSH válida. Cole o arquivo INTEIRO, com as linhas BEGIN e END — e a privada, não a .pub."
+            exit 1
+          fi
+
+          # Impressão digital não é segredo, e é o que permite comparar com a
+          # entrada do authorized_keys sem expor chave nenhuma.
+          echo "chave carregada: $(ssh-keygen -lf ~/.ssh/id_deploy | awk '{print $2}')"
+
+          # Fixa a identidade do host: sem isto, `StrictHostKeyChecking=no`
+          # aceitaria qualquer servidor que atendesse no meio do caminho.
+          printf '%s\n' "${{ secrets.VPS_HOST_KEY }}" | tr -d '\r' > ~/.ssh/known_hosts
+
+      # A chave está presa a `~/bin/deploy.sh` por forced command: o que vai
+      # aqui chega em SSH_ORIGINAL_COMMAND e nunca é executado como shell.
+      # Vazada, ela publica uma imagem que já existe no GHCR — não abre sessão
+      # nem roda comando arbitrário.
+      - name: Publicar na VPS
+        run: |
+          # Repete APENAS falha de conexão. O `ssh` devolve 255 quando não
+          # consegue conectar ou autenticar, e o código do comando remoto em
+          # qualquer outro caso — o que dá o discriminador exato de que se
+          # precisa aqui. Repetir um deploy que falhou de verdade atropelaria
+          # a reversão automática do `deploy.sh` e poderia rodar duas
+          # publicações ao mesmo tempo.
+          #
+          # `ConnectTimeout`: a falha de 26/08 levou 2min17s para desistir.
+          # Errar rápido e tentar de novo vale mais que esperar em silêncio.
+          for tentativa in 1 2 3; do
+            set +e
+            ssh -i ~/.ssh/id_deploy \
+              -o IdentitiesOnly=yes \
+              -o ConnectTimeout=20 \
+              deploy@${{ secrets.VPS_HOST }} \
+              "domino ${{ steps.sha.outputs.tag }}"
+            CODIGO=$?
+            set -e
+
+            if [ "$CODIGO" -eq 0 ]; then
+              exit 0
+            fi
+
+            if [ "$CODIGO" -ne 255 ]; then
+              echo "::error::o deploy na VPS falhou (código $CODIGO). Não é falha de conexão, então não vou repetir — o deploy.sh já reverteu o que precisava."
+              exit "$CODIGO"
+            fi
+
+            echo "::warning::tentativa $tentativa não conectou na VPS (ssh 255)"
+
+            # `if` em todo lugar, e nunca `[ ... ] && comando`: a forma curta
+            # funciona aqui, mas só porque `set -e` poupa o lado esquerdo de um
+            # `&&`. Depender dessa regra para o passo não abortar sozinho é o
+            # tipo de sutileza que alguém "simplifica" e quebra sem perceber.
+            if [ "$tentativa" -lt 3 ]; then
+              sleep $((tentativa * 15))
+            fi
+          done
+
+          echo "::error::não consegui conectar na VPS em 3 tentativas. A aplicação no ar não foi tocada; verifique rota e fail2ban antes de repetir."
+          exit 255

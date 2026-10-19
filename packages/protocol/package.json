@@ -1,0 +1,15 @@
+{
+  "name": "@domino/protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@domino/rules": "*",
+    "zod": "^4.4.3",
+    "@domino/bot": "*"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./validate": "./src/validate.ts"
+  }
+}

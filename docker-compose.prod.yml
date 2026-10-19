@@ -1,0 +1,65 @@
+# Produção na VPS, no mesmo arranjo do FDP.
+#
+# - `domino-api` serve o cliente e a API no mesmo processo, na rede `edge`
+#   para o Caddy compartilhado alcançar. Não publica porta no host.
+# - `domino-redis` guarda as salas vivas, só na rede interna. Próprio, e não o
+#   de outro app: um FLUSHALL lá não pode derrubar partida aqui. Sem
+#   persistência em disco — sala tem TTL de 4 h.
+#
+# O `deploy.sh` da VPS sobe só o serviço `api` (`up -d --no-deps api`):
+# recriar o Redis a cada deploy derrubaria as salas vivas à toa.
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: domino-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    image: ghcr.io/jpmvale/domino:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: domino-api
+    restart: unless-stopped
+    environment:
+      DOMINO_SESSION_SECRET: ${DOMINO_SESSION_SECRET:?defina DOMINO_SESSION_SECRET no .env}
+      REDIS_URL: redis://redis:6379
+      ALLOWED_ORIGIN: https://domino.imp-software.cloud
+      TRUST_PROXY: "1"
+      PORT: "3000"
+      DOMINO_VERSION: ${IMAGE_TAG:-dev}
+    networks:
+      - internal
+      - edge
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+networks:
+  internal:
+    driver: bridge
+  edge:
+    external: true

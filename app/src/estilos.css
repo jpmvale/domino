@@ -1,0 +1,326 @@
+/* Inter, o tipo do design (`design/Main.dc.html`).
+ *
+ * Hospedada aqui, e não no Google Fonts, por duas razões: a CSP do servidor é
+ * fechada em `'self'` e abri-la para dois domínios de terceiro para buscar
+ * fonte é preço alto; e uma requisição externa no caminho crítico é uma coisa
+ * a mais que pode estar lenta entre o link e a primeira rodada.
+ *
+ * Só o subconjunto LATINO: é um arquivo variável que cobre os pesos 100–900, e
+ * os acentos do português (á é í ó ú ã õ ç â ê ô à) cabem todos em U+0000–00FF.
+ * Os outros seis subconjuntos do design — cirílico, grego, vietnamita — seriam
+ * 180 KB para servir idioma que a v1 não tem (RF-006 de `08`: só pt-BR).
+ *
+ * `swap`: o texto aparece na hora com a fonte do sistema e troca quando a
+ * Inter chega. Nunca uma tela em branco esperando tipo.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fontes/inter-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Nocturne — o design system do FDP, herdado pelo dominó.
+ *
+ * Os valores vêm do canvas do Claude Design (`design/Main.dc.html`), lidos da
+ * seção 1 e não arredondados: trocar #17395a por um verde "de mesa" qualquer
+ * quebra as razões de contraste que a paleta de avatares foi otimizada para
+ * atender. */
+
+:root {
+  --fundo: #080b14;
+  --superficie: #131a26;
+  --superficie-2: #1c2432;
+  --poco: #0d121c;
+  --feltro-claro: #17395a;
+  --feltro-escuro: #0b1f33;
+  --linha: #2a3242;
+  --acento: #9184d9;
+  --acento-claro: #b5abfc;
+  --vidas: #ef4d5a;
+  --texto: #e9e9ed;
+  --texto-fraco: #9397ab;
+  /* Subiu de #75798c em 03/09/2026: o valor antigo dava 4,05:1 sobre
+     `--superficie` e 3,61 sobre `--superficie-2`, abaixo do piso de 4,5 do
+     RNF-030 — e `.rotulo` usa este token em quase toda tela. O `axe-core`
+     apontou na primeira execução dele, em cinco telas de uma vez.
+
+     #878ba0 dá 4,62 no pior fundo. `app/test/contraste.test.ts` cobra isto
+     agora, para o piso não voltar a ser furado por um ajuste de estética. */
+  --texto-apagado: #878ba0;
+  --texto-medio: #b2b6ca;
+
+  /* Paleta de avatares (`07` §4). A ordem é a de AVATAR_COLORS no protocolo —
+   * o índice é o contrato entre servidor e cliente.
+   *
+   * Estes valores são cobrados por CA-344 e CA-345: mexer aqui sem rodar a
+   * suíte pode fazer dois jogadores virarem a mesma cor para quem tem
+   * daltonismo. Foi o que aconteceu com `lime` — ver o teste. */
+  --avatar-amber: #c7b467;
+  --avatar-teal: #0eb09e;
+  --avatar-rose: #ff4983;
+  --avatar-indigo: #6594fa;
+  --avatar-lime: #6cd317;
+  --avatar-sky: #83d2ff;
+  --avatar-orange: #f86111;
+  --avatar-violet: #b580ca;
+
+  /* Nota de desempenho. Medidas contra `--poco`, o fundo do cartão onde a
+   * nota aparece: todas passam de 4,5:1, e há teste cobrando isso. */
+  --nota-baixa: #ef4d5a;
+  --nota-media: #e0a33a;
+  --nota-alta: #3fb98a;
+  --nota-otima: #6594fa;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+
+  /* Alvo de toque mínimo de RF-021. Nomeado para não virar 40 por descuido. */
+  --toque: 44px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--fundo);
+  color: var(--texto);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100dvh;
+  /* RF-020: nenhuma tela rola na horizontal em 360 px. */
+  overflow-x: hidden;
+  overscroll-behavior-y: none;
+}
+
+button, input { font: inherit; color: inherit; }
+
+button {
+  min-height: var(--toque);
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--acento);
+  color: #12101d;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 16px;
+}
+button:disabled { opacity: 0.38; cursor: not-allowed; }
+button.fantasma {
+  background: transparent;
+  color: var(--texto);
+  box-shadow: inset 0 0 0 1px var(--linha);
+}
+button.perigo { background: transparent; color: var(--vidas); box-shadow: inset 0 0 0 1px var(--vidas); }
+
+/* Foco visível com 3:1 contra o fundo (RNF-030). O anel é o mesmo em todo
+ * elemento focável: aprender uma vez basta. */
+:focus-visible { outline: 2px solid var(--acento-claro); outline-offset: 2px; }
+
+input {
+  width: 100%;
+  min-height: var(--toque);
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  background: var(--poco);
+  border: 1px solid var(--linha);
+}
+input:focus { border-color: var(--acento); }
+
+.rotulo {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--texto-apagado);
+}
+
+.fraco { color: var(--texto-fraco); font-size: 13px; }
+
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-lg);
+  padding: 14px;
+}
+
+.pilha { display: flex; flex-direction: column; gap: 12px; }
+.linha { display: flex; gap: 8px; align-items: center; }
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.casca {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+/* A mesa abre em tela larga: feltro e chat lado a lado. */
+@media (min-width: 900px) {
+  .casca--mesa { max-width: 1080px; }
+  .mesa-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    align-items: start;
+    gap: 16px;
+  }
+  .mesa-lateral {
+    position: sticky;
+    top: 12px;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Dominó
+   ------------------------------------------------------------------------- */
+
+:root {
+  --pedra: #f3eee2;
+  --pedra-borda: #c9c0ab;
+  --pedra-ponto: #1b1f2a;
+  --pedra-linha: #b7ad95;
+  --pedra-costas: #2b3550;
+  --alvo: #3fb98a;
+  --ponto: #e0a33a;
+}
+
+.feltro {
+  background: radial-gradient(ellipse at center, var(--feltro-claro) 0%, var(--feltro-escuro) 100%);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--superficie-2);
+  box-shadow: inset 0 0 0 1px var(--linha);
+  color: var(--texto-medio);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mao {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 4px 4px;
+}
+
+.pedra-botao {
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 8px;
+  transition: transform 120ms ease-out;
+}
+.pedra-botao:disabled { opacity: 0.45; cursor: default; }
+.pedra-botao.jogavel:not(:disabled):hover { transform: translateY(-4px); }
+.pedra-botao.selecionada { transform: translateY(-10px); }
+
+@keyframes alvo-pulsa {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.alvo { animation: alvo-pulsa 900ms ease-in-out infinite; cursor: pointer; }
+
+/* Sem opacidade zero no começo: aba em segundo plano pausa a animação no
+   primeiro quadro, e a pedra recém-jogada sumiria da mesa. */
+@keyframes pedra-chega {
+  from { transform: scale(1.18); }
+  to { transform: scale(1); }
+}
+.pedra-nova { animation: pedra-chega 260ms ease-out; transform-box: fill-box; transform-origin: center; }
+
+@keyframes vez-pulsa {
+  0%, 100% { box-shadow: 0 0 0 2px var(--acento), 0 0 14px 2px rgba(145, 132, 217, 0.45); }
+  50% { box-shadow: 0 0 0 2px rgba(145, 132, 217, 0.4), 0 0 4px 0 rgba(145, 132, 217, 0.1); }
+}
+.na-vez { animation: vez-pulsa 1.4s ease-in-out infinite; }
+
+@keyframes aviso-entra {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+.aviso { animation: aviso-entra 180ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  .na-vez, .alvo { animation-name: none; }
+  .na-vez { box-shadow: 0 0 0 2px var(--acento); }
+}
+
+.gaveta-fundo {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 12, 0.7);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 20;
+}
+.gaveta {
+  width: 100%;
+  max-width: 520px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  background: var(--superficie);
+  border: 1px solid var(--linha);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+}
+@media (min-width: 700px) {
+  .gaveta-fundo { align-items: center; }
+  .gaveta { border-radius: var(--r-lg); }
+}
+
+.segmentado {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-md);
+  background: var(--poco);
+  border: 1px solid var(--linha);
+}
+.segmentado button {
+  flex: 1;
+  min-height: 38px;
+  background: transparent;
+  color: var(--texto-fraco);
+  font-weight: 500;
+  padding: 0 8px;
+}
+.segmentado button[aria-pressed='true'] {
+  background: var(--superficie-2);
+  color: var(--texto);
+  box-shadow: inset 0 0 0 1px var(--acento);
+}
+
+/* No celular o chat mora numa gaveta; no desktop, ao lado da mesa. */
+.mesa-lateral { display: none; }
+@media (min-width: 900px) {
+  .mesa-lateral { display: block; }
+  .mesa-chat-botao { display: none; }
+}

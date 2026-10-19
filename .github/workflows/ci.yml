@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    # Sem o Redis de pé, a suíte de contrato do store se pula sozinha e o CI
+    # daria verde sem ter testado a implementação que vai para produção.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b --pretty
+
+      - name: Build do cliente
+        run: npm run build:client
+
+      # O teto de bundle do FDP: se fura uma dependência por vez, sem ninguém notar.
+      - name: Orçamento do bundle
+        run: |
+          BYTES=$(cat app/build/assets/*.js | gzip -9 | wc -c)
+          TETO=$((180 * 1024))
+          echo "bundle: $BYTES bytes comprimidos (teto $TETO)"
+          if [ "$BYTES" -gt "$TETO" ]; then
+            echo "::error::o bundle passou de 180 KB comprimidos"
+            exit 1
+          fi
+
+      # O que roda em produção é o que tem superfície de ataque.
+      - name: Auditoria de dependências
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Testes
+        run: npm test
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+
+      - name: O contrato do Redis rodou de verdade
+        run: |
+          if npm test -- packages/store 2>&1 | grep -q "skipped"; then
+            echo "::error::a suíte de contrato do Redis foi pulada no CI"
+            exit 1
+          fi
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+
+      # Compilado dentro de `src/` faz o Vite resolver o `.js` velho em vez do `.ts`.
+      - name: Nada de compilado dentro de src/
+        run: |
+          achados=$(find packages/*/src server/src app/src \
+            \( -name '*.js' -o -name '*.d.ts' -o -name '*.js.map' \) 2>/dev/null || true)
+          if [ -n "$achados" ]; then
+            echo "::error::há saída de compilação dentro de src/"
+            echo "$achados"
+            exit 1
+          fi
+
+      # Regra de jogo não se decide no cliente.
+      - name: O cliente não importa a sala
+        run: |
+          if grep -rn "@domino/room" app/src; then
+            echo "::error::app/src importou @domino/room"
+            exit 1
+          fi
+
+      # O motor é puro: tempo e aleatoriedade entram por parâmetro.
+      - name: Pureza do motor de regras
+        run: |
+          if grep -rn "Date\.now\|Math\.random" packages/rules/src --include=*.ts; then
+            echo "::error::packages/rules usa Date.now ou Math.random"
+            exit 1
+          fi
+          if grep -rnE "from '@domino/(store|protocol|room)" packages/rules/src; then
+            echo "::error::packages/rules importou fora da própria fronteira"
+            exit 1
+          fi
